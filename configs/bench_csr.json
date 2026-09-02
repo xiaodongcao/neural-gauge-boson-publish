@@ -1,0 +1,161 @@
+{
+  "io": {
+    "save_dir": "./output",
+    "clean_start": false
+  },
+  "lattice": {
+    "Nx": 1,
+    "Ny": 1,
+    "prim_x": [1.0, 0.0],
+    "prim_y": [0.0, 1.0],
+    "boundary_x": "periodic",
+    "boundary_y": "periodic",
+    "hopping_amplitudes": [0.25],
+    "U": 1.0,
+    "gamma": 0.3,
+    "F_real": 0.0,   
+    "F_imag": 0.0, 
+    "Delta": 0.0, 
+    "n0": 1.0
+  },
+  "training": {
+    "multi_device": {
+      "enabled": true,
+      "num_devices": "auto"
+    },
+    "sde_solver": "interaction_picture_exact_local",
+    "sde_max_iter": 10,
+    "sde_affine_expm_order": 6,
+    "sde_affine_expm_substeps": 1,
+    "sde_newton_damping_steps": 4,
+    "seed": 0,
+    "dt": 0.004,
+    "t0": 0.0,
+    "gauge_mode": "neural_graph",
+    "neural_gauge_components": "both",
+    "gauge_scale": 1.0,
+    "loss_ess_prefactor": 0.0,
+    "loss_residual_gmm_prefactor": 1.0,
+    "operator_monomials": [ [0,1], [1,0], [1,1], [2,2] ],
+    "q_winsor": 1.0,
+    "residual_gmm_d_clip": 1.0e10,
+    "residual_gmm_cov_floor": 1.0e-8,
+    "residual_gmm_cov_shrinkage": 0.1,
+    "residual_gmm_time_aggregation": "mean",
+    "residual_gmm_time_beta": 2.0,
+    "residual_gmm_integrator_nodes": 5,
+    "pareto_k_monomials": [ [0,1], [1,2], [2,2] ],
+    "loss_pareto_k_prefactor": 1.0e-7,
+    "pareto_k_threshold": 1.0,
+    "pareto_k_threshold_tau": 0.1,
+    "pareto_k_tail_fraction": 0.2,
+    "pareto_k_min_tail_count": 16,
+    "pareto_k_envelope_beta": 0.0,
+    "pareto_k_envelope_excess": "log",
+    "loss_gauge_prefactor": 1.0e-7,
+    "loss_L2_prefactor": 1.0e-16,
+    "load_parameters": false,
+    "log_every": 1,
+    "save_every": 50,
+    "make_plots": true,
+    "plot_every": 50,
+    "apply_neural_gauge_every_steps": 10,
+    "neural_gauge_state_gradient": "full",
+    "segmented_overlap": {
+      "enabled": true,
+      "segment_overlap_windows": 1,
+      "max_bank_refresh_failures": 50000, 
+      "stage_schedule": [       
+        {
+          "stage_id": 1,
+          "n_epoch": 100001,
+          "n_segments": 1,
+          "n_windows_per_segment": 10,
+          "num_walker": 10000, 
+          "N_steps": 20
+        }
+      ]
+    }
+  },
+  "simulation": {
+    "sde_solver": "interaction_picture_exact_local",
+    "sde_max_iter": 10,
+    "sde_affine_expm_order": 6,
+    "sde_affine_expm_substeps": 1,
+    "sde_newton_damping_steps": 4,
+    "walker_batches": {
+      "enabled": true,
+      "num_walker_per_batch": 5000000,
+      "num_batches": null
+    },
+    "seed": 0,
+    "num_walker": 10000000,
+    "dt": 0.0005,
+    "N_steps": 20,
+    "N_windows": 1500,
+    "t0": 0.0,
+    "gauge_mode": "neural_graph",
+    "neural_gauge_components": "both",
+    "multi_device": {
+      "enabled": true,
+      "num_devices": "auto"
+    },
+    "gauge_scale": 1.0,
+    "save_raw_walkers": false,
+    "save_raw_walkers_every_windows": 100,
+    "save_format": "npz",
+    "save_compressed": true,
+    "save_precision": "float32",
+    "save_observables": true,
+    "save_observables_every_windows": 1,
+    "save_observable_errors": true,
+    "remove_unhealth": {
+      "enabled": false,
+      "logstd": 100.0
+    },
+    "observables": [
+      "G1_initial",
+      "G1",
+      "g2"
+    ],
+    "ed": {
+      "enabled": true,
+      "n_cut": 100
+    }
+  },
+  "optimizer": {
+    "type": "rmsprop",
+    "init_value": 1e-6,
+    "peak_value": 5e-6,
+    "warmup_steps": 150,
+    "end_value": 5e-6,
+    "clip_norm": 1.0e1,
+    "decay": 0.99
+  },
+  "model": {
+    "u1_invariant": true,
+    "time_embed_dim": 64,
+    "embed_dim": 256,
+    "feature_dims": [2, 256],
+    "bound_drift": false,
+    "bound_diffusion": true,
+    "drift_max": 10.0,
+    "diffusion_max": 10.0,
+    "time_feature": "Dense",
+    "graph_time_tau_init": [
+      0.75,
+      3.0,
+      12.0,
+      48.0
+    ],
+    "graph_time_w_init": [
+      1.0,
+      2.0,
+      3.0,
+      4.0
+    ],
+    "num_tau_encode": 4,
+    "num_frequency_encode": 4,
+    "num_message_passing_layers": 1
+  }
+}

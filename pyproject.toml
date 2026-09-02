@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neural-stochastic-gauge"
+version = "0.1.0"
+description = "Neural stochastic-gauge representations for quantum many-body systems"
+readme = "README.md"
+requires-python = ">=3.10,<3.12"
+authors = [
+  {name = "Xiaodong Cao"},
+  {name = "Zhicheng Zhong"},
+]
+keywords = [
+  "quantum many-body",
+  "stochastic gauge",
+  "gauge-P",
+  "phase-space simulation",
+  "neural networks",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "jax==0.4.20",
+  "jaxlib==0.4.20",
+  "flax==0.7.5",
+  "optax==0.1.7",
+  "numpy==1.26.4",
+  "scipy==1.11.3",
+  "matplotlib==3.8.1",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["nsgr", "nsgr.*"]
+namespaces = false

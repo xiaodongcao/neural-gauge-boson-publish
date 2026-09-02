@@ -1,0 +1,44 @@
+# macOS and editor metadata
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Python bytecode and tooling caches
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Environments and build products
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# JAX, Matplotlib, and notebook caches
+.jax_cache/
+.matplotlib/
+.ipynb_checkpoints/
+
+# Local secrets and scheduler logs
+.env
+.env.*
+slurm-*.out
+*.log
+
+# NSGR runtime outputs, checkpoints, and generated numerical data
+runs/
+output/
+**/output/
+*.msgpack
+*.npz
+*.zarr/
