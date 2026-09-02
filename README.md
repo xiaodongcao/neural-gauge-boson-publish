@@ -7,14 +7,12 @@ method introduced in:
 > Quantum Dynamics of Interacting Bosons,”**
 > [arXiv:2607.17534](https://arxiv.org/abs/2607.17534) (2026).
 
-The code trains neural drift and diffusion gauges for positive-P/gauge-P
+The code trains neural drift and diffusion gauges for gauge-P
 stochastic simulations of real-time interacting bosonic systems. The primary
 training signal is a covariance-normalized residual of exact moment equations,
 with optional Pareto-tail, gauge-output, parameter-norm, and weight-entropy
-regularization.
+regularization/monitoring.
 
-This is a **code-only release**. The trained checkpoints and numerical data
-used for the figures in the paper are not included.
 
 ## Implemented scope
 
@@ -31,15 +29,14 @@ The maintained implementation supports:
 - NPZ output, optional Zarr output, observable error estimates, and optional
   exact-diagonalization benchmarks for sufficiently small systems.
 
-Fermionic representations, imaginary-time evolution, and complex-time
-contours are not part of this release.
+
 
 ## Repository layout
 
 ```text
 neural_gauge_boson/
 ├── configs/
-│   └── bench_csr.json          # production calculation configuration
+│   └── bench_csr.json          # calculation configuration
 ├── docs/
 │   └── technical_reference.md  # equations and implementation details
 ├── scripts/
@@ -64,8 +61,8 @@ configuration.
 - Matplotlib 3.8.1
 
 The exact Python dependencies are pinned in `pyproject.toml`. The supplied
-production calculation requires CUDA-capable accelerators and substantial
-device memory. CPU execution is intended only for installation checks and
+production calculation requires CUDA-capable accelerators.
+CPU execution is intended only for installation checks and
 very small tests.
 
 ## Installation
@@ -84,12 +81,6 @@ install the JAX 0.4.20 build appropriate for the cluster's CUDA/cuDNN stack
 before installing this package. See the
 [official JAX installation guide](https://docs.jax.dev/en/latest/installation.html).
 
-Verify the installation and inspect the devices visible to JAX:
-
-```bash
-python -c "import nsgr; print(nsgr.__version__)"
-python -c "import jax; print(jax.devices())"
-```
 
 The executable scripts provide built-in configuration summaries:
 
@@ -98,10 +89,10 @@ python scripts/train_gauge.py --help
 python scripts/simulation_run.py --help
 ```
 
-## Supplied production configuration
+## Supplied configuration
 
 [`configs/bench_csr.json`](configs/bench_csr.json) is the configuration of an
-actual calculation. It is not a toy example. Its main workload settings are:
+actual calculation. Its main workload settings are:
 
 - a single-site Kerr problem with `U=1`, `gamma=0.3`, and initial occupation
   `n0=1`;
@@ -114,64 +105,18 @@ actual calculation. It is not a toy example. Its main workload settings are:
 - a production simulation with 10000000 walkers, split into walker batches;
 - simulation step size `dt=5e-4`, 20 steps per window, and 1500 windows.
 
-Running this file unchanged can require a long GPU calculation. To test a new
-installation, first copy it:
-
-```bash
-cp configs/bench_csr.json configs/my_run.json
-```
-
-Then reduce the copied configuration. For a smoke test:
-
-- set both `training.multi_device.enabled` and
-  `simulation.multi_device.enabled` to `false`;
-- reduce `n_epoch`, `num_walker`, and `n_windows_per_segment` in
-  `training.segmented_overlap.stage_schedule[0]`;
-- reduce `simulation.num_walker` and `simulation.N_windows`;
-- disable `simulation.walker_batches` and `simulation.ed`;
-- keep each training-stage `N_steps` divisible by
-  `training.residual_gmm_integrator_nodes - 1`;
-- if `training.apply_neural_gauge_every_steps` is present, keep it smaller
-  than every stage's `N_steps`.
-
-Reduced settings only test whether the software runs; they are not
-scientifically converged parameters.
-
-## Output-path convention
-
-Paths in a configuration are resolved relative to the JSON file itself. For
-example, in `configs/my_run.json`,
-
-```json
-"save_dir": "../runs/my_run"
-```
-
-writes to `runs/my_run/` at the repository root. In the supplied configuration,
-`"save_dir": "./output"` resolves to `configs/output/`.
 
 ## Train a neural gauge
-
 Run from the repository root:
 
 ```bash
 python scripts/train_gauge.py configs/bench_csr.json
 ```
 
-To run a modified copy instead:
-
-```bash
-python scripts/train_gauge.py configs/my_run.json
-```
-
-If no JSON path is supplied, the script uses `configs/bench_csr.json`.
-Training writes the canonical checkpoint to:
-
-```text
-<save_dir>/train/model_params.msgpack
-```
-
 It also records the resolved configuration, histories, metadata, diagnostic
 plots, and a provenance snapshot of the imported `nsgr` source.
+
+One needs to increase the training horizon gradually using multi-stage training. When `stage-id>1`, it will load previous checkpoint automatically.
 
 ## Run a simulation
 
@@ -303,20 +248,3 @@ A typical neural-gauge run produces:
 Stage-specific training files are additionally written by staged or
 overlapping-segment training. The exact output set depends on the storage and
 plotting options in the configuration.
-
-## Citation
-
-If this code contributes to published work, please cite:
-
-```bibtex
-@article{cao2026neuralgaugep,
-  title   = {Neural Gauge-P Representation for Open Quantum Dynamics of Interacting Bosons},
-  author  = {Cao, Xiaodong and Zhong, Zhicheng},
-  journal = {arXiv preprint arXiv:2607.17534},
-  year    = {2026},
-  doi     = {10.48550/arXiv.2607.17534}
-}
-```
-
-Paper: <https://arxiv.org/abs/2607.17534>
-# neural-gauge-boson-publish
