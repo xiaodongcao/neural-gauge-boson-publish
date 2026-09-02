@@ -319,3 +319,4 @@ If this code contributes to published work, please cite:
 ```
 
 Paper: <https://arxiv.org/abs/2607.17534>
+# neural-gauge-boson-publish
