@@ -5,6 +5,7 @@ from .dynamics_kernel import (
     run_one_window_simulation_rollout,
 )
 from .lib_preinclude import *
+from .projected_residual import DEFAULT_RESIDUAL_GMM_TRACE_MODE
 from .utility import PARETO_K_MONOMIAL_TERMS
 
 
@@ -491,6 +492,7 @@ class MultiDeviceGradientComputer:
         pareto_k_monomials: tuple,
         pareto_k_envelope_excess: str,
         operator_monomials: tuple,
+        residual_gmm_trace_mode: str = DEFAULT_RESIDUAL_GMM_TRACE_MODE,
         residual_gmm_time_aggregation: str,
         residual_gmm_integrator_nodes: int = 6,
         pareto_k_tail_fraction: float,
@@ -557,6 +559,7 @@ class MultiDeviceGradientComputer:
                 window_loss_weights=window_loss_weights,
                 lnOmega_shift0=lnOmega_shift0,
                 operator_monomials=operator_monomials,
+                residual_gmm_trace_mode=residual_gmm_trace_mode,
                 residual_gmm_covariance_bank=(
                     residual_gmm_covariance_bank
                 ),

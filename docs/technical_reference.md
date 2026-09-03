@@ -175,6 +175,7 @@ A typical configuration is
     "residual_gmm_d_clip": 10.0,
     "residual_gmm_cov_floor": 1.0e-8,
     "residual_gmm_cov_shrinkage": 0.05,
+    "residual_gmm_trace_mode": "diagnostic",
     "residual_gmm_time_aggregation": "mean",
     "residual_gmm_time_beta": 2.0
   }
@@ -187,21 +188,29 @@ loss. `(m,n)` denotes the onsite normal-ordered monomial
 equation and must not be listed. If the selector is omitted while the loss is
 active, validation inserts the four pairs shown above.
 
-There is no generated channel hierarchy. At every lattice site the complex
-channel order is exactly
+There is no generated channel hierarchy. The persistent raw-diagnostic channel
+order at every lattice site is exactly
 
 ```text
 [trace, (m_0,n_0), (m_1,n_1), ...]
 ```
 
-where the pairs retain configuration order. Thus
+where the pairs retain configuration order. Let `M` be the number of configured
+monomials. The raw diagnostic count and active covariance/objective count are
 
 ```text
-C = 1 + len(operator_monomials)
-D = 2 C
+C_diagnostic = 1 + M
+C_objective  = M + (1 if residual_gmm_trace_mode == "joint" else 0)
+D            = 2 C_objective
 ```
 
-are the complex and real channel dimensions per site. The endpoint observable
+These are the complex diagnostic/objective counts and active real channel
+dimension per site.
+
+The default `residual_gmm_trace_mode="diagnostic"` keeps the trace equation in
+raw histories but excludes it from covariance estimation, whitening,
+Mahalanobis clipping, `q`, and the optimized objective. The explicit `"joint"`
+mode restores the legacy trace-first joint geometry. The endpoint observable
 is always the selected bare onsite monomial. Physical coefficients such as
 `U`, `gamma`, `F`, `Delta`, and hopping amplitudes occur only in its exact
 adjoint-Lindblad right-hand side `L^dagger O`.
@@ -256,10 +265,11 @@ trace drift divided by the window duration; it does not become identically zero
 through snapshot-by-snapshot normalization.
 
 There is one physical trace equation. It is broadcast across the site axis so
-every site has the same `C`-channel basis and trace preservation participates
-in the residual mean and in the site-averaged covariance, including its
-cross-covariances with all configured monomial channels. Broadcasting does not
-create independent physical trace equations.
+the raw `(channel,walker,site)` diagnostic cloud has a stable trace-first shape;
+broadcasting does not create independent physical trace equations. In default
+`diagnostic` mode it is sliced from the active cloud before covariance and
+objective calculations. In `joint` mode it participates in the residual mean,
+site-averaged covariance, and cross-covariances with the monomial channels.
 
 ### Site-averaged covariance geometry
 
@@ -269,20 +279,24 @@ The residual clouds have shape
 (complex_channel, walker, site).
 ```
 
-At each site, complex channels are packed in interleaved order
+At each site, active complex channels are packed in interleaved order. In the
+default mode this is
 
 ```text
-[Re(trace), Im(trace), Re(O_0), Im(O_0), ...].
+[Re(O_0), Im(O_0), Re(O_1), Im(O_1), ...].
 ```
+
+In `joint` mode `[Re(trace), Im(trace)]` is prepended. Raw diagnostic histories
+remain trace first in either mode.
 
 The covariance uses the exact population covariance of self-normalized
 ratio-estimator influence contributions. The same endpoint-minus-integral
 operation used for the forward cloud is applied to the influence cloud, while
 paired walker identity is retained across quadrature nodes. Let
-`x_(k,w,i)` be the resulting real influence vector for window `k`, walker `w`,
-and site `i`, and let `mu_(k,i)` be the corresponding full forward residual
-mean. With `N_w` walkers and `N_s` sites, the within-site and shared
-covariances are
+`x_(k,w,i)` be the resulting active real influence vector for window `k`,
+walker `w`, and site `i`, and let `mu_(k,i)` be the corresponding active
+forward residual mean. With `N_w` walkers and `N_s` sites, the within-site and
+shared covariances are
 
 ```text
 xbar_(k,i)  = (1/N_w) sum_w x_(k,w,i),
@@ -293,12 +307,12 @@ SigmaBar_k  = (1/N_s) sum_i Sigma_(k,i).
 
 Thus `SigmaBar_k` is an average of within-site population covariances. It is
 not a covariance over pooled site samples, so differences between site means
-do not add a between-site scatter term. The forward residual mean and the
+do not add a between-site scatter term. The active forward residual mean and
 covariance estimate both use all walkers; `q_winsor` does not enter this loss.
 There is no additional division by `N_w` after forming `SigmaBar_k`.
 
-One shared covariance whitens every site in a window. With the real channel
-dimension `D=2C` defined above, the regularization is
+One shared covariance whitens every site in a window. With the active real
+channel dimension `D` defined above, the regularization is
 
 ```text
 SigmaBar_floor,k = SigmaBar_k + cov_floor I,
@@ -310,8 +324,9 @@ CBar_reg,k       = (1-shrinkage) CBar_k
 
 The implementation Cholesky-whitens with `CBar_reg,k` after scaling by
 `A_k^(-1)`. Equivalently, this defines one shared precision matrix `PBar_k`.
-All configured channels remain in the objective; there is no mode selection.
-Covariance quantities are stop-gradient preconditioners.
+All configured onsite monomial channels remain in the objective. The trace is
+also active only in `joint` mode. Covariance quantities are stop-gradient
+preconditioners.
 
 A lagged covariance bank is calibrated over the first 200 accepted optimizer
 updates of each stage and then frozen. An uninitialized window is scored with
@@ -327,11 +342,12 @@ segmented: (segment, window, D, D)
 
 with matching Boolean initialization masks that omit the final matrix axes.
 
-The forward mean is not clipped. Its gradient contribution is clipped
+The active forward mean is not clipped. Its gradient contribution is clipped
 walkerwise at Mahalanobis radius `residual_gmm_d_clip`, using a
 straight-through construction so the reported forward residual still includes
-every walker. Lagging removes an instantaneous incentive to inflate covariance,
-and freezing removes a moving-normalizer loophole. Raw residual channels,
+every walker in every active channel. Lagging removes an instantaneous
+incentive to inflate covariance, and freezing removes a moving-normalizer
+loophole. The full raw residual history (including trace), active-channel
 radii, and physical observables should still be inspected alongside the
 normalized objective.
 
@@ -674,7 +690,10 @@ lr
 Residual per-channel histories are raw residual squares averaged over sites in
 trace-first configuration order. The transient auxiliary tree may contain a
 `(channel,site)` breakdown for aggregation, but this array is not persisted in
-epoch history. This avoids history growth with lattice size.
+epoch history. `loss_residual_gmm_raw` is the sum of these full raw diagnostic
+terms and therefore includes trace in both modes; it is not the optimized
+normalized objective in `diagnostic` mode. This avoids history growth with
+lattice size.
 
 EMA-enabled terms additionally record matching scale and normalized values.
 `loss` is always the optimized objective after prefactors and optional EMA

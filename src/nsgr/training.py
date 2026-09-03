@@ -21,7 +21,10 @@ from .multi_device import (
     unshard_walker_history,
 )
 from .projected_residual import (
+    DEFAULT_RESIDUAL_GMM_TRACE_MODE,
+    normalize_residual_gmm_trace_mode,
     projected_residual_channel_labels,
+    projected_residual_objective_channel_count,
     projected_residual_term_names,
 )
 from .utility import (
@@ -553,7 +556,7 @@ def _format_residual_gmm_channel_losses(
 
 
 def _residual_gmm_term_display(term: str) -> str:
-    """Decode one trace-first residual-GMM history key."""
+    """Decode one trace-first residual-GMM diagnostic-history key."""
 
     prefix = "loss_residual_gmm_"
     suffix = term[len(prefix) :] if term.startswith(prefix) else term
@@ -580,6 +583,7 @@ def _format_residual_gmm_setup(
     d_clip: float,
     cov_floor: float,
     cov_shrinkage: float,
+    trace_mode: str,
     time_aggregation: str,
     time_beta: float,
 ) -> str:
@@ -587,6 +591,11 @@ def _format_residual_gmm_setup(
     integrator_nodes = int(integrator_nodes)
     integrator_subintervals = integrator_nodes - 1
     integrator_degree = 3 if integrator_nodes in {3, 4} else 5
+    trace_mode = normalize_residual_gmm_trace_mode(trace_mode)
+    objective_channel_count = projected_residual_objective_channel_count(
+        targets,
+        trace_mode=trace_mode,
+    )
     time_aggregation = str(time_aggregation)
     if time_aggregation == "log1p":
         site_window_score = "log1p(q), q=mu^T P mu"
@@ -633,8 +642,14 @@ def _format_residual_gmm_setup(
             "basis",
             [
                 f"sites={int(num_site)}",
-                f"channels/site={len(terms)} complex / {2 * len(terms)} real",
-                "one trace equation plus configured onsite moment equations",
+                (
+                    f"diagnostic channels/site={len(terms)} complex "
+                    f"(trace plus {len(targets)} onsite)"
+                ),
+                (
+                    f"objective channels/site={objective_channel_count} complex / "
+                    f"{2 * objective_channel_count} real"
+                ),
             ],
         )
     )
@@ -642,6 +657,12 @@ def _format_residual_gmm_setup(
         _format_progress_rows(
             "objective",
             [
+                f"trace mode={trace_mode}",
+                (
+                    "trace retained only as an unnormalized raw diagnostic"
+                    if trace_mode == "diagnostic"
+                    else "trace included in covariance and normalized objective"
+                ),
                 f"prefactor={float(prefactor):g}",
                 f"time aggregation={time_aggregation}",
                 f"per-site/window score={site_window_score}",
@@ -668,7 +689,7 @@ def _format_residual_gmm_setup(
         _format_progress_rows(
             "covariance",
             [
-                "shared joint correlation-space Cholesky whitening",
+                "shared active-channel correlation-space Cholesky whitening",
                 "self-normalized ratio-influence covariance",
                 "population covariance formed per site, then averaged over sites",
                 "lagged EMA per window",
@@ -683,7 +704,15 @@ def _format_residual_gmm_setup(
     lines.extend(
         _format_progress_rows(
             "channel order",
-            ["trace first", "then operator_monomials in configuration order"],
+            [
+                "raw diagnostics: trace first",
+                "then operator_monomials in configuration order",
+                (
+                    "covariance/objective: operator_monomials only"
+                    if trace_mode == "diagnostic"
+                    else "covariance/objective: same trace-first order"
+                ),
+            ],
         )
     )
     lines.extend(
@@ -1372,7 +1401,7 @@ class GaugeTrainer:
             "loss_ema_state_restored": False,
             "residual_covariance_state_restored": False,
             "residual_gmm_definition": (
-                "site_averaged_covariance_bare_monomial_closed_newton_cotes_v2"
+                "site_averaged_covariance_bare_monomial_closed_newton_cotes_v3"
             ),
             "history_npz_path": history_npz_path,
             "history_json_path": history_json_path,
@@ -1397,10 +1426,23 @@ class GaugeTrainer:
             newton_damping_steps=int(train_cfg["sde_newton_damping_steps"]),
         )
         if _residual_gmm_branch_requested(train_cfg):
+            trace_mode = normalize_residual_gmm_trace_mode(
+                train_cfg.get(
+                    "residual_gmm_trace_mode",
+                    DEFAULT_RESIDUAL_GMM_TRACE_MODE,
+                )
+            )
             integrator_nodes = int(
                 train_cfg.get("residual_gmm_integrator_nodes", 6)
             )
             targets = _residual_gmm_targets(train_cfg)
+            diagnostic_channel_count = 1 + len(targets)
+            objective_channel_count = (
+                projected_residual_objective_channel_count(
+                    targets,
+                    trace_mode=trace_mode,
+                )
+            )
             metadata["residual_gmm_integrator"] = {
                 "family": "closed_newton_cotes",
                 "nodes": integrator_nodes,
@@ -1414,7 +1456,16 @@ class GaugeTrainer:
                 "walker_estimator": "population_covariance",
                 "site_aggregation": "mean_of_within_site_covariances",
                 "shared_across_sites": True,
-                "trace_channel_included": True,
+                "trace_mode": trace_mode,
+                "trace_channel_included": trace_mode == "joint",
+                "trace_in_covariance": trace_mode == "joint",
+                "trace_in_objective": trace_mode == "joint",
+                "trace_raw_diagnostic_retained": True,
+                "diagnostic_complex_channel_count": diagnostic_channel_count,
+                "objective_complex_channel_count": objective_channel_count,
+                "objective_real_channel_dimension": (
+                    2 * objective_channel_count
+                ),
                 "bank_has_site_axis": False,
             }
             time_aggregation = str(
@@ -1453,6 +1504,12 @@ class GaugeTrainer:
             )
             metadata["residual_gmm_channels"] = list(
                 projected_residual_channel_labels(targets)
+            )
+            diagnostic_labels = projected_residual_channel_labels(targets)
+            metadata["residual_gmm_objective_channels"] = list(
+                diagnostic_labels
+                if trace_mode == "joint"
+                else diagnostic_labels[1:]
             )
             metadata["residual_gmm_operator_monomials"] = [
                 [int(m_power), int(n_power)]
@@ -1628,6 +1685,12 @@ class GaugeTrainer:
         residual_gmm_cov_shrinkage = float(
             train_cfg.get("residual_gmm_cov_shrinkage", 0.05)
         )
+        residual_gmm_trace_mode = normalize_residual_gmm_trace_mode(
+            train_cfg.get(
+                "residual_gmm_trace_mode",
+                DEFAULT_RESIDUAL_GMM_TRACE_MODE,
+            )
+        )
         residual_gmm_time_aggregation = str(
             train_cfg.get("residual_gmm_time_aggregation", "mean")
         ).strip().lower()
@@ -1733,6 +1796,7 @@ class GaugeTrainer:
                     d_clip=residual_gmm_d_clip,
                     cov_floor=residual_gmm_cov_floor,
                     cov_shrinkage=residual_gmm_cov_shrinkage,
+                    trace_mode=residual_gmm_trace_mode,
                     time_aggregation=residual_gmm_time_aggregation,
                     time_beta=residual_gmm_time_beta,
                 ),
@@ -1828,8 +1892,13 @@ class GaugeTrainer:
                 ),
                 flush=True,
             )
-        residual_gmm_channel_dimension = (
-            2 * len(selected_residual_gmm_terms)
+        residual_gmm_channel_dimension = 2 * (
+            projected_residual_objective_channel_count(
+                residual_gmm_targets,
+                trace_mode=residual_gmm_trace_mode,
+            )
+            if enable_loss_residual_gmm
+            else 0
         )
         if enable_loss_residual_gmm:
             (
@@ -1864,6 +1933,7 @@ class GaugeTrainer:
                 pareto_k_monomials=pareto_k_monomials,
                 pareto_k_envelope_excess=pareto_k_envelope_excess,
                 operator_monomials=residual_gmm_targets,
+                residual_gmm_trace_mode=residual_gmm_trace_mode,
                 residual_gmm_time_aggregation=(
                     residual_gmm_time_aggregation
                 ),
@@ -1965,6 +2035,7 @@ class GaugeTrainer:
                     window_loss_weights=uniform_window_weights,
                     lnOmega_shift0=DTYPE(0.0),
                     operator_monomials=residual_gmm_targets,
+                    residual_gmm_trace_mode=residual_gmm_trace_mode,
                     residual_gmm_covariance_bank=(
                         residual_gmm_covariance_bank
                     ),
@@ -2180,6 +2251,12 @@ class GaugeTrainer:
         residual_gmm_cov_shrinkage = float(
             train_cfg.get("residual_gmm_cov_shrinkage", 0.05)
         )
+        residual_gmm_trace_mode = normalize_residual_gmm_trace_mode(
+            train_cfg.get(
+                "residual_gmm_trace_mode",
+                DEFAULT_RESIDUAL_GMM_TRACE_MODE,
+            )
+        )
         residual_gmm_time_aggregation = str(
             train_cfg.get("residual_gmm_time_aggregation", "mean")
         ).strip().lower()
@@ -2274,8 +2351,13 @@ class GaugeTrainer:
                     ),
                     flush=True,
                 )
-            residual_gmm_channel_dimension = (
-                2 * len(selected_residual_gmm_terms)
+            residual_gmm_channel_dimension = 2 * (
+                projected_residual_objective_channel_count(
+                    residual_gmm_targets,
+                    trace_mode=residual_gmm_trace_mode,
+                )
+                if enable_loss_residual_gmm
+                else 0
             )
             if enable_loss_residual_gmm:
                 (
@@ -2382,6 +2464,7 @@ class GaugeTrainer:
                             cov_shrinkage=(
                                 residual_gmm_cov_shrinkage
                             ),
+                            trace_mode=residual_gmm_trace_mode,
                             time_aggregation=(
                                 residual_gmm_time_aggregation
                             ),
@@ -2458,7 +2541,15 @@ class GaugeTrainer:
                             [
                                 f"window duration={dt * int(stage.n_steps):g}",
                                 f"sites={int(self.lattice.num_site)}",
-                                f"channels/site={len(selected_residual_gmm_terms)} complex",
+                                (
+                                    "diagnostic channels/site="
+                                    f"{len(selected_residual_gmm_terms)} complex"
+                                ),
+                                (
+                                    "objective channels/site="
+                                    f"{residual_gmm_channel_dimension // 2} complex "
+                                    f"(trace mode={residual_gmm_trace_mode})"
+                                ),
                             ],
                         )
                     ),
@@ -2522,6 +2613,7 @@ class GaugeTrainer:
                     pareto_k_monomials=pareto_k_monomials,
                     pareto_k_envelope_excess=pareto_k_envelope_excess,
                     operator_monomials=residual_gmm_targets,
+                    residual_gmm_trace_mode=residual_gmm_trace_mode,
                     residual_gmm_time_aggregation=(
                         residual_gmm_time_aggregation
                     ),
@@ -2751,6 +2843,7 @@ class GaugeTrainer:
                             window_loss_weights=segment_window_weight,
                             lnOmega_shift0=DTYPE(lnOmega_shift_segment),
                             operator_monomials=residual_gmm_targets,
+                            residual_gmm_trace_mode=residual_gmm_trace_mode,
                             residual_gmm_covariance_bank=(
                                 None
                                 if residual_gmm_covariance_bank is None

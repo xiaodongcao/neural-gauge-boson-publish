@@ -1,5 +1,9 @@
 from .analytical_gauge import ANALYTICAL_GAUGE_MODES, validate_analytical_gauge_mode
 from .lib_preinclude import *
+from .projected_residual import (
+    DEFAULT_RESIDUAL_GMM_TRACE_MODE,
+    normalize_residual_gmm_trace_mode,
+)
 import math
 import re
 import shutil
@@ -1244,6 +1248,7 @@ def validate_config(config: Dict[str, Any]):
         "residual_gmm_cov_shrinkage",
         "residual_gmm_d_clip",
         "residual_gmm_integrator_nodes",
+        "residual_gmm_trace_mode",
         "residual_gmm_time_aggregation",
         "residual_gmm_time_beta",
         "save_every",
@@ -1701,6 +1706,14 @@ def validate_config(config: Dict[str, Any]):
         minimum=1,
     )
     config["training"]["pareto_k_min_tail_count"] = pareto_k_min_tail_count
+    config["training"]["residual_gmm_trace_mode"] = (
+        normalize_residual_gmm_trace_mode(
+            config["training"].get(
+                "residual_gmm_trace_mode",
+                DEFAULT_RESIDUAL_GMM_TRACE_MODE,
+            )
+        )
+    )
     residual_gmm_integrator_nodes = config["training"].get(
         "residual_gmm_integrator_nodes",
         6,

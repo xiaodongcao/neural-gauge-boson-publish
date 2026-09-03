@@ -56,8 +56,8 @@ Current training behavior:
     stochastic rollout batch before refreshing the training noise
   - `training.operator_monomials = [[m,n], ...]` is the complete onsite
     monomial basis for the projected residual metric. The trace equation is
-    added automatically; do not list `(0,0)` explicitly. Channel order is
-    trace first, then the configured pairs in exact configuration order.
+    added automatically; do not list `(0,0)` explicitly. Raw diagnostic order
+    is trace first, then the configured pairs in exact configuration order.
   - `training.pareto_k_applied_quantities = P_K` and
     `training.pareto_k_applied_quantities_mode` select self-normalized
     observable monomial clouds for `<(a^\\dagger)^m a^n>`, estimated as
@@ -80,23 +80,25 @@ Current training behavior:
     5/6-node rules both have formal degree 5; one more node is not always one
     more formal order. `N_steps` must be divisible by `nodes-1`. Residuals are
     windowwise; there is no prefix accumulation or propagated influence state.
-    At each site the complex channel count is
-    `1 + len(operator_monomials)`. Real and imaginary parts are stacked into
-    one joint covariance geometry, and the one physical trace equation is
-    broadcast across sites.
-    The forward mean uses the full normalized contribution cloud. Covariance
-    and radii use the exact population covariance of the corresponding
-    self-normalized ratio-influence cloud. These within-site population
-    covariances are averaged over sites to form one shared window covariance,
-    which is floored by `residual_gmm_cov_floor`, standardized and shrunk by
-    `residual_gmm_cov_shrinkage`, then whitened with a Cholesky solve. Walker
+    The default `residual_gmm_trace_mode="diagnostic"` retains the broadcast
+    physical trace equation in raw logs but excludes it from covariance,
+    whitening, clipping, and the objective. The resulting active complex
+    channel count is `len(operator_monomials)`. Set the mode to `"joint"` for
+    the legacy trace-inclusive geometry, with complex channel count
+    `1 + len(operator_monomials)`.
+    The active forward mean uses every walker in the normalized contribution
+    cloud. Covariance and radii use the exact population covariance of the
+    corresponding self-normalized ratio-influence cloud. These within-site
+    population covariances are averaged over sites to form one shared window
+    covariance, which is floored by `residual_gmm_cov_floor`, standardized,
+    shrunk by `residual_gmm_cov_shrinkage`, then whitened with a Cholesky solve. Walker
     gradients are clipped at Mahalanobis radius `residual_gmm_d_clip`; the raw
     monitoring mean is not clipped. The lagged covariance bank has shape
     `(window, real_channel, real_channel)`, is updated for the first 200
     accepted optimizer updates of a stage, and then freezes. This bank is
     independent of the optional generic `training.EMA` normalizer.
     `residual_gmm_time_aggregation` accepts `"mean"`, `"log1p"`, `"entropic"`,
-    or `"entropic_log1p"`. For every site in every window, define the joint
+    or `"entropic_log1p"`. For every site in every window, define the active
     covariance-normalized score `q = mu^T P mu`. `"mean"` averages `q`, while
     `"log1p"` transforms each individual site/window score to `log1p(q)` before
     averaging over sites and windows; it is not applied after either average.

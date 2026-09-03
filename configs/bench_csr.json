@@ -38,11 +38,12 @@
     "loss_residual_gmm_prefactor": 1.0,
     "operator_monomials": [ [0,1], [1,0], [1,1], [2,2] ],
     "q_winsor": 1.0,
+    "residual_gmm_trace_mode": "diagnostic",
     "residual_gmm_d_clip": 1.0e10,
     "residual_gmm_cov_floor": 1.0e-8,
-    "residual_gmm_cov_shrinkage": 0.1,
+    "residual_gmm_cov_shrinkage": 0.0,
     "residual_gmm_time_aggregation": "mean",
-    "residual_gmm_time_beta": 2.0,
+    "residual_gmm_time_beta": 100.0,
     "residual_gmm_integrator_nodes": 5,
     "pareto_k_monomials": [ [0,1], [1,2], [2,2] ],
     "loss_pareto_k_prefactor": 1.0e-7,
@@ -70,9 +71,9 @@
           "stage_id": 1,
           "n_epoch": 100001,
           "n_segments": 1,
-          "n_windows_per_segment": 10,
-          "num_walker": 10000, 
-          "N_steps": 20
+          "n_windows_per_segment": 5,
+          "num_walker": 100000, 
+          "N_steps": 80
         }
       ]
     }
@@ -89,10 +90,10 @@
       "num_batches": null
     },
     "seed": 0,
-    "num_walker": 10000000,
-    "dt": 0.0005,
+    "num_walker": 5000000,
+    "dt": 0.00025,
     "N_steps": 20,
-    "N_windows": 1500,
+    "N_windows": 3000,
     "t0": 0.0,
     "gauge_mode": "neural_graph",
     "neural_gauge_components": "both",
@@ -126,10 +127,10 @@
   "optimizer": {
     "type": "rmsprop",
     "init_value": 1e-6,
-    "peak_value": 5e-6,
+    "peak_value": 5e-5,
     "warmup_steps": 150,
     "end_value": 5e-6,
-    "clip_norm": 1.0e1,
+    "clip_norm": 1.0e0,
     "decay": 0.99
   },
   "model": {

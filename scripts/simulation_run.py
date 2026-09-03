@@ -77,21 +77,23 @@ Current simulation behavior:
     `training.operator_monomials` is the complete onsite residual basis. Every
     left-hand side is one configured bare monomial and every physical
     coefficient occurs only in its exact `L^dagger` right-hand side. At each
-    site the channel order is trace followed by the configured monomials in
-    exact configuration order. No residual is accumulated from the rollout
-    start.
+    site the raw diagnostic order is trace followed by the configured
+    monomials in exact configuration order. No residual is accumulated from
+    the rollout start.
     `training.residual_gmm_integrator_nodes` selects 3, 4, 5, or 6 closed
     Newton-Cotes nodes (default 6). `training.N_steps` must be divisible by
     `nodes-1`; 3/4 nodes both have formal degree 3 and 5/6 nodes both have
     formal degree 5.
-    A population covariance over all real and imaginary channels is estimated
-    within each site from the full self-normalized ratio-influence cloud, then
-    averaged over sites to form one shared window covariance. The physical
-    trace equation is the first channel and is broadcast across sites before
-    covariance averaging. A lagged covariance
+    With the default `training.residual_gmm_trace_mode="diagnostic"`, a
+    population covariance over the configured onsite real and imaginary
+    channels is estimated within each site from the self-normalized
+    ratio-influence cloud, then averaged over sites to form one shared window
+    covariance. The broadcast physical trace equation remains a raw monitor
+    but is excluded from that geometry and objective. Set the mode to
+    `"joint"` for the legacy trace-inclusive covariance. A lagged covariance
     bank is calibrated during the first 200 accepted optimizer updates of each
-    stage and then frozen. Covariance
-    flooring, correlation shrinkage, Cholesky whitening, and walkerwise
+    stage and then frozen. Covariance flooring, correlation shrinkage,
+    Cholesky whitening, and walkerwise
     Mahalanobis gradient clipping affect training only; they do not change the
     saved simulation rollout
   - `training.N_steps` must be divisible by

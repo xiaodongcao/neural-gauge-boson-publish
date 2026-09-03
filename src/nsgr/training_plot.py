@@ -340,7 +340,7 @@ def _build_panels(
     )
     add_group(
         31,
-        "Joint residual cloud: whitened mean",
+        "Objective residual cloud: whitened mean",
         (
             ("residual_gmm_z_mean", "mean"),
             ("residual_gmm_z_max", "time-mean max"),
@@ -349,7 +349,7 @@ def _build_panels(
     )
     add_group(
         32,
-        "Joint residual cloud: Mahalanobis radius",
+        "Objective residual cloud: Mahalanobis radius",
         (
             ("residual_gmm_radius_mean", "mean"),
             ("residual_gmm_radius_max", "time-mean max"),
@@ -358,7 +358,7 @@ def _build_panels(
     )
     add_group(
         33,
-        "Joint residual cloud: flagged fractions",
+        "Objective residual cloud: flagged fractions",
         (
             ("residual_gmm_warning_fraction", "warning"),
             ("residual_gmm_bad_fraction", "bad"),
@@ -731,7 +731,7 @@ def plot_training_history(
                 )
             note = None
             if (
-                title == "Joint residual cloud: Mahalanobis radius"
+                title == "Objective residual cloud: Mahalanobis radius"
                 and not flagged_panel_present
             ):
                 note = "no flagged walkers"

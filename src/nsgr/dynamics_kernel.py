@@ -9,8 +9,10 @@ from .postprocess import (
 )
 from .projected_residual import (
     CLOSED_NEWTON_COTES_RULES,
+    DEFAULT_RESIDUAL_GMM_TRACE_MODE,
     normalize_projected_residual_monomials,
     normalize_residual_gmm_integrator_nodes,
+    normalize_residual_gmm_trace_mode,
 )
 from .utility import (
     NEURAL_GAUGE_MODES,
@@ -1334,12 +1336,13 @@ def _distributed_mean_cov_nd(
 
 @partial(
     jax.jit,
-    static_argnames=("axis_name",),
+    static_argnames=("residual_gmm_trace_mode", "axis_name"),
 )
 def _residual_gmm_loss_from_residual_cloud(
     residual_cloud: jnp.ndarray,
     *,
     residual_influence_cloud: jnp.ndarray | None = None,
+    residual_gmm_trace_mode: str = DEFAULT_RESIDUAL_GMM_TRACE_MODE,
     d_clip: DTYPE = 10.0,
     cov_floor: DTYPE = 1.0e-8,
     cov_shrinkage: DTYPE = 0.05,
@@ -1354,9 +1357,10 @@ def _residual_gmm_loss_from_residual_cloud(
     corresponding self-normalized ratio influence at each lattice site.  This
     one shared covariance preconditions every site residual before the site
     objectives are averaged.  Covariance quantities are stopped-gradient
-    preconditioners.  Channels are packed as
-    ``Re(trace), Im(trace), Re(O1), Im(O1), ...``; the trace is therefore part
-    of both the residual vector and its shared covariance.
+    preconditioners.  The input always has trace first so raw diagnostics keep
+    a stable channel order.  In the default ``diagnostic`` trace mode only the
+    onsite channels enter covariance estimation, whitening, gradient clipping,
+    and the objective.  ``joint`` retains the legacy trace-first joint basis.
     """
 
     residual_cloud = jnp.asarray(residual_cloud, dtype=CDTYPE)
@@ -1394,7 +1398,23 @@ def _residual_gmm_loss_from_residual_cloud(
             f"received {residual_cloud.shape}"
         )
 
-    real_channel_count = 2 * term_count
+    trace_mode = normalize_residual_gmm_trace_mode(
+        residual_gmm_trace_mode
+    )
+    if trace_mode == "diagnostic":
+        if term_count <= 1:
+            raise ValueError(
+                "diagnostic residual trace mode requires at least one "
+                "onsite objective channel after the trace"
+            )
+        objective_cloud = residual_cloud[1:]
+        objective_influence_cloud = residual_influence_cloud[1:]
+    else:
+        objective_cloud = residual_cloud
+        objective_influence_cloud = residual_influence_cloud
+    objective_term_count = int(objective_cloud.shape[0])
+
+    real_channel_count = 2 * objective_term_count
     expected_covariance_shape = (
         real_channel_count,
         real_channel_count,
@@ -1433,8 +1453,10 @@ def _residual_gmm_loss_from_residual_cloud(
             (num_site, walker_count_local, real_channel_count),
         ).astype(DTYPE)
 
-    samples = _interleaved_real_samples(residual_cloud)
-    influence_samples = _interleaved_real_samples(residual_influence_cloud)
+    samples = _interleaved_real_samples(objective_cloud)
+    influence_samples = _interleaved_real_samples(
+        objective_influence_cloud
+    )
     influence_mean, site_covariance_estimate, global_walker_count = (
         _distributed_mean_cov_nd(
             influence_samples,
@@ -1749,8 +1771,9 @@ def _projected_residual_clouds(
 
     The output order is ``[trace, *operator_monomials]`` and both arrays have
     shape ``(1+len(operator_monomials), walker, site)``.  Trace is one physical
-    equation broadcast over sites so every site's walker covariance has the
-    same trace-first joint channel basis before those covariances are averaged.
+    equation broadcast over sites to preserve stable raw diagnostics.  The
+    downstream trace mode decides whether this broadcast trace also enters the
+    covariance-normalized objective.
     """
 
     monomials = normalize_projected_residual_monomials(operator_monomials)
@@ -2206,6 +2229,7 @@ def _advance_training_window_segment(
         "pareto_k_applied_quantities_mode",
         "pareto_k_monomials",
         "operator_monomials",
+        "residual_gmm_trace_mode",
         "residual_gmm_integrator_nodes",
         "pareto_k_envelope_excess",
         "pareto_k_tail_fraction",
@@ -2270,6 +2294,7 @@ def run_one_window_training_profile(
     enable_loss_gauge: bool = True,
     enable_loss_ess: bool = False,
     center_axis_name=None,
+    residual_gmm_trace_mode: str = DEFAULT_RESIDUAL_GMM_TRACE_MODE,
 ):
     _, t, dt, solver_coefficients, physical_params, noise_scale = (
         _prepare_rollout_context(
@@ -2484,6 +2509,7 @@ def run_one_window_training_profile(
             residual_influence_cloud=(
                 residual_gmm_window_influence_cloud
             ),
+            residual_gmm_trace_mode=residual_gmm_trace_mode,
             d_clip=residual_gmm_d_clip,
             cov_floor=residual_gmm_cov_floor,
             cov_shrinkage=residual_gmm_cov_shrinkage,
@@ -2777,6 +2803,7 @@ def run_one_window_simulation_rollout(
         "pareto_k_applied_quantities_mode",
         "pareto_k_monomials",
         "operator_monomials",
+        "residual_gmm_trace_mode",
         "residual_gmm_time_aggregation",
         "residual_gmm_integrator_nodes",
         "pareto_k_envelope_excess",
@@ -2854,6 +2881,7 @@ def _loss_and_aux_all_windows(
     enable_loss_L2: bool = True,
     enable_loss_ess: bool = False,
     center_axis_name=None,
+    residual_gmm_trace_mode: str = DEFAULT_RESIDUAL_GMM_TRACE_MODE,
 ):
     def _validate_covariance_bank(
         bank: jnp.ndarray | None,
@@ -2893,9 +2921,14 @@ def _loss_and_aux_all_windows(
         if enable_loss_residual_gmm
         else ()
     )
+    trace_mode = normalize_residual_gmm_trace_mode(
+        residual_gmm_trace_mode
+    )
     if enable_loss_residual_gmm:
         if residual_gmm_covariance_bank is not None:
-            expected_real_channels = 2 * (1 + len(residual_monomials))
+            expected_real_channels = 2 * (
+                len(residual_monomials) + int(trace_mode == "joint")
+            )
             expected_shape = (
                 expected_real_channels,
                 expected_real_channels,
@@ -2906,7 +2939,7 @@ def _loss_and_aux_all_windows(
             ):
                 raise ValueError(
                     "windowwise residual covariance bank is incompatible with "
-                    "the trace-first onsite channel basis: expected trailing "
+                    f"residual_gmm_trace_mode={trace_mode!r}: expected trailing "
                     f"shape {expected_shape}, received "
                     f"{residual_gmm_covariance_bank.shape[-2:]}"
                 )
@@ -3020,6 +3053,7 @@ def _loss_and_aux_all_windows(
                 pareto_k_envelope_beta=pareto_k_envelope_beta,
                 pareto_k_envelope_excess=pareto_k_envelope_excess,
                 operator_monomials=residual_monomials,
+                residual_gmm_trace_mode=trace_mode,
                 residual_gmm_integrator_nodes=(
                     residual_gmm_integrator_nodes
                 ),
@@ -3393,6 +3427,7 @@ def _loss_and_aux_all_windows(
         "pareto_k_applied_quantities_mode",
         "pareto_k_monomials",
         "operator_monomials",
+        "residual_gmm_trace_mode",
         "residual_gmm_time_aggregation",
         "residual_gmm_integrator_nodes",
         "pareto_k_envelope_excess",
@@ -3470,6 +3505,7 @@ def compute_grads_all_windows(
     enable_loss_L2: bool = True,
     enable_loss_ess: bool = False,
     center_axis_name=None,
+    residual_gmm_trace_mode: str = DEFAULT_RESIDUAL_GMM_TRACE_MODE,
 ):
     def loss_for_params(params_arg):
         return _loss_and_aux_all_windows(
@@ -3489,6 +3525,7 @@ def compute_grads_all_windows(
             window_loss_weights=window_loss_weights,
             lnOmega_shift0=lnOmega_shift0,
             operator_monomials=operator_monomials,
+            residual_gmm_trace_mode=residual_gmm_trace_mode,
             residual_gmm_covariance_bank=(
                 residual_gmm_covariance_bank
             ),
