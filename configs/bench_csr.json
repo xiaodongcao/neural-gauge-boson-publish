@@ -69,11 +69,35 @@
       "stage_schedule": [       
         {
           "stage_id": 1,
-          "n_epoch": 100001,
+          "n_epoch": 201,
           "n_segments": 1,
           "n_windows_per_segment": 5,
-          "num_walker": 100000, 
-          "N_steps": 80
+          "num_walker": 10000, 
+          "N_steps": 40
+        },
+        {
+          "stage_id": 2,
+          "n_epoch": 201,
+          "n_segments": 1,
+          "n_windows_per_segment": 10,
+          "num_walker": 10000, 
+          "N_steps": 40
+        },
+        {
+          "stage_id": 3,
+          "n_epoch": 501,
+          "n_segments": 1,
+          "n_windows_per_segment": 20,
+          "num_walker": 10000, 
+          "N_steps": 40
+        },
+        {
+          "stage_id": 3,
+          "n_epoch": 1001,
+          "n_segments": 1,
+          "n_windows_per_segment": 30,
+          "num_walker": 10000, 
+          "N_steps": 40
         }
       ]
     }
@@ -86,14 +110,14 @@
     "sde_newton_damping_steps": 4,
     "walker_batches": {
       "enabled": true,
-      "num_walker_per_batch": 5000000,
+      "num_walker_per_batch": 1000000,
       "num_batches": null
     },
     "seed": 0,
-    "num_walker": 5000000,
+    "num_walker": 1000000,
     "dt": 0.00025,
     "N_steps": 20,
-    "N_windows": 3000,
+    "N_windows": 1000,
     "t0": 0.0,
     "gauge_mode": "neural_graph",
     "neural_gauge_components": "both",
