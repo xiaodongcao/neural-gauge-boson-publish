@@ -41,7 +41,8 @@ neural_gauge_boson/
 │   └── technical_reference.md  # equations and implementation details
 ├── scripts/
 │   ├── train_gauge.py          # training entry point
-│   └── simulation_run.py       # simulation entry point
+│   ├── simulation_run.py       # simulation entry point
+│   └── load_g1_initial.py      # standalone NPZ loading example
 ├── src/nsgr/                   # installable Python package
 ├── pyproject.toml
 └── README.md
@@ -141,6 +142,26 @@ To run an ungauged positive-P baseline without a neural checkpoint, set:
 
 To use the implemented adaptive analytical gauge-P baseline, set
 `simulation.gauge_mode` to `"wuster_adaptive"`.
+
+## Load saved observables
+
+After the simulation finishes, set `simulation_dir` near the top of
+`scripts/load_g1_initial.py` to your simulation directory, then run:
+
+```bash
+python scripts/load_g1_initial.py
+```
+
+It loads `times` and `G1_initial` from:
+
+```text
+your_simulation_dir/output/simulation/ed_benchmark.npz
+your_simulation_dir/output/simulation/simulation_observables_neural_graph.npz
+```
+
+The loaded arrays are named `ed_times`, `ed_g1_initial`, `neural_times`, and
+`neural_g1_initial`. The script prints the ED and neural-gauge values side by
+side at the neural-gauge time points and depends only on NumPy.
 
 ## Main configuration sections
 

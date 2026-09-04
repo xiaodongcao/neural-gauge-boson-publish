@@ -43,7 +43,7 @@
     "residual_gmm_cov_floor": 1.0e-8,
     "residual_gmm_cov_shrinkage": 0.0,
     "residual_gmm_time_aggregation": "mean",
-    "residual_gmm_time_beta": 100.0,
+    "residual_gmm_time_beta": 2.0,
     "residual_gmm_integrator_nodes": 5,
     "pareto_k_monomials": [ [0,1], [1,2], [2,2] ],
     "loss_pareto_k_prefactor": 1.0e-7,
@@ -92,7 +92,7 @@
           "N_steps": 40
         },
         {
-          "stage_id": 3,
+          "stage_id": 4,
           "n_epoch": 1001,
           "n_segments": 1,
           "n_windows_per_segment": 30,
