@@ -94,9 +94,11 @@ Current training behavior:
     shrunk by `residual_gmm_cov_shrinkage`, then whitened with a Cholesky solve. Walker
     gradients are clipped at Mahalanobis radius `residual_gmm_d_clip`; the raw
     monitoring mean is not clipped. The lagged covariance bank has shape
-    `(window, real_channel, real_channel)`, is updated for the first 200
-    accepted optimizer updates of a stage, and then freezes. This bank is
-    independent of the optional generic `training.EMA` normalizer.
+    `(window, real_channel, real_channel)` and is updated after every accepted
+    optimizer update. A generalized spectral-ratio clip limits each new
+    covariance estimate relative to the numerically floored preceding bank
+    before the EMA update.
+    This bank is independent of the optional generic `training.EMA` normalizer.
     `residual_gmm_time_aggregation` accepts `"mean"`, `"log1p"`, `"entropic"`,
     or `"entropic_log1p"`. For every site in every window, define the active
     covariance-normalized score `q = mu^T P mu`. `"mean"` averages `q`, while

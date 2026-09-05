@@ -60,13 +60,14 @@ from .utility import (
 )
 from .training_plot import plot_training_history
 
-# Calibrate the covariance geometry before the policy has moved far, then hold
-# that geometry fixed so later policies cannot lower the normalized objective
-# by progressively inflating residual variance. A newly visited window
-# bootstraps from its current site-averaged estimate, so this fixed decay needs
-# neither a reference covariance nor bias correction.
-RESIDUAL_GMM_COVARIANCE_EMA_DECAY = 0.99
-RESIDUAL_GMM_COVARIANCE_UPDATE_EPOCHS = 200
+# Keep the covariance geometry lagged by one accepted optimizer update while
+# allowing it to follow the policy throughout a training stage.  Generalized
+# eigenvalue clipping limits how far one newly sampled covariance can move the
+# geometry relative to the preceding bank.  These are deliberately internal
+# policy defaults rather than user-facing configuration controls.
+RESIDUAL_GMM_COVARIANCE_EMA_DECAY = 0.95
+RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MIN = 0.25
+RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MAX = 4.0
 
 TRAINING_HISTORY_KEYS = (
     "epoch",
@@ -154,8 +155,9 @@ def _update_residual_gmm_covariance_ema(
     initialized: jnp.ndarray,
     covariance_estimates: jnp.ndarray,
     active_weights: jnp.ndarray,
+    covariance_floor: DTYPE = 1.0e-8,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Commit finite shared covariance estimates after an accepted update."""
+    """Commit a finite, spectrally bounded covariance EMA update."""
 
     bank = jax.lax.stop_gradient(jnp.asarray(covariance_bank, dtype=DTYPE))
     mask = jax.lax.stop_gradient(jnp.asarray(initialized, dtype=jnp.bool_))
@@ -186,15 +188,106 @@ def _update_residual_gmm_covariance_ema(
 
     finite = jnp.all(jnp.isfinite(estimates), axis=(-2, -1))
     active = (weights > jnp.asarray(0.0, dtype=DTYPE)) & finite
+
+    # ``where`` does not prevent both branches from being evaluated by JAX.
+    # Supply finite matrices to both eigendecompositions even for inactive or
+    # not-yet-initialized entries, then select the committed update below.
+    symmetric_bank = DTYPE(0.5) * (
+        bank + jnp.swapaxes(bank, -1, -2)
+    )
+    symmetric_estimates = DTYPE(0.5) * (
+        estimates + jnp.swapaxes(estimates, -1, -2)
+    )
+    bank_finite = jnp.all(jnp.isfinite(symmetric_bank), axis=(-2, -1))
+    usable_bank = mask & bank_finite
+    dimension = int(bank.shape[-1])
+    floor = jnp.asarray(covariance_floor, dtype=DTYPE)
+    identity = jnp.broadcast_to(
+        jnp.eye(dimension, dtype=DTYPE),
+        bank.shape,
+    )
+    reference = jnp.where(
+        usable_bank[..., None, None],
+        symmetric_bank + floor * identity,
+        identity,
+    )
+    safe_estimates = jnp.where(
+        active[..., None, None],
+        symmetric_estimates,
+        reference,
+    )
+
+    reference_eigenvalues, reference_eigenvectors = jnp.linalg.eigh(reference)
+    machine = np.finfo(np.dtype(DTYPE))
+    reference_scale = jnp.max(
+        jnp.abs(reference_eigenvalues),
+        axis=-1,
+        keepdims=True,
+    )
+    reference_floor = jnp.maximum(
+        jnp.asarray(machine.eps * dimension, dtype=DTYPE) * reference_scale,
+        floor,
+    )
+    reference_eigenvalues = jnp.maximum(
+        reference_eigenvalues,
+        reference_floor,
+    )
+    reference_sqrt = (
+        reference_eigenvectors
+        * jnp.sqrt(reference_eigenvalues)[..., None, :]
+    ) @ jnp.swapaxes(reference_eigenvectors, -1, -2)
+    reference_inverse_sqrt = (
+        reference_eigenvectors
+        * jax.lax.rsqrt(reference_eigenvalues)[..., None, :]
+    ) @ jnp.swapaxes(reference_eigenvectors, -1, -2)
+
+    relative_estimates = (
+        reference_inverse_sqrt
+        @ safe_estimates
+        @ reference_inverse_sqrt
+    )
+    relative_estimates = DTYPE(0.5) * (
+        relative_estimates
+        + jnp.swapaxes(relative_estimates, -1, -2)
+    )
+    relative_eigenvalues, relative_eigenvectors = jnp.linalg.eigh(
+        relative_estimates
+    )
+    relative_eigenvalues = jnp.clip(
+        relative_eigenvalues,
+        jnp.asarray(
+            RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MIN,
+            dtype=DTYPE,
+        ),
+        jnp.asarray(
+            RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MAX,
+            dtype=DTYPE,
+        ),
+    )
+    clipped_relative_estimates = (
+        relative_eigenvectors
+        * relative_eigenvalues[..., None, :]
+    ) @ jnp.swapaxes(relative_eigenvectors, -1, -2)
+    clipped_estimates = (
+        reference_sqrt
+        @ clipped_relative_estimates
+        @ reference_sqrt
+    )
+    clipped_estimates = DTYPE(0.5) * (
+        clipped_estimates + jnp.swapaxes(clipped_estimates, -1, -2)
+    )
+
     decay = jnp.asarray(RESIDUAL_GMM_COVARIANCE_EMA_DECAY, dtype=DTYPE)
     updated = jnp.where(
-        mask[..., None, None],
-        decay * bank + (jnp.asarray(1.0, dtype=DTYPE) - decay) * estimates,
-        estimates,
+        usable_bank[..., None, None],
+        decay * symmetric_bank
+        + (jnp.asarray(1.0, dtype=DTYPE) - decay) * clipped_estimates,
+        symmetric_estimates,
     )
     updated = DTYPE(0.5) * (updated + jnp.swapaxes(updated, -1, -2))
-    bank = jnp.where(active[..., None, None], updated, bank)
-    mask = mask | active
+    commit = active & jnp.all(jnp.isfinite(updated), axis=(-2, -1))
+    bank = jnp.where(commit[..., None, None], updated, bank)
+    mask = mask | commit
     return jax.lax.stop_gradient(bank), jax.lax.stop_gradient(mask)
 
 
@@ -692,11 +785,12 @@ def _format_residual_gmm_setup(
                 "shared active-channel correlation-space Cholesky whitening",
                 "self-normalized ratio-influence covariance",
                 "population covariance formed per site, then averaged over sites",
-                "lagged EMA per window",
+                "continuous accepted-update EMA per window (one-update lag)",
                 f"decay={RESIDUAL_GMM_COVARIANCE_EMA_DECAY:g}",
                 (
-                    f"calibrate first {RESIDUAL_GMM_COVARIANCE_UPDATE_EPOCHS} "
-                    "accepted updates/stage, then freeze"
+                    "generalized spectral ratio clip="
+                    f"[{RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MIN:g}, "
+                    f"{RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MAX:g}]"
                 ),
             ],
         )
@@ -1467,6 +1561,17 @@ class GaugeTrainer:
                     2 * objective_channel_count
                 ),
                 "bank_has_site_axis": False,
+                "update_policy": "continuous_after_accepted_optimizer_update",
+                "ema_decay": RESIDUAL_GMM_COVARIANCE_EMA_DECAY,
+                "spectral_ratio_min": (
+                    RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MIN
+                ),
+                "spectral_ratio_max": (
+                    RESIDUAL_GMM_COVARIANCE_SPECTRAL_RATIO_MAX
+                ),
+                "spectral_reference_covariance_floor": float(
+                    train_cfg.get("residual_gmm_cov_floor", 1.0e-8)
+                ),
             }
             time_aggregation = str(
                 train_cfg.get("residual_gmm_time_aggregation", "mean")
@@ -1870,7 +1975,6 @@ class GaugeTrainer:
             print("multi-device training = disabled", flush=True)
 
         skipped_epoch_count = 0
-        residual_gmm_covariance_update_count = 0
         uniform_window_weights = jnp.full(
             (int(train_cfg["N_windows"]),),
             jnp.asarray(1.0 / max(int(train_cfg["N_windows"]), 1), dtype=DTYPE),
@@ -2125,11 +2229,7 @@ class GaugeTrainer:
                 )
                 continue
 
-            if (
-                residual_gmm_covariance_update_count
-                < RESIDUAL_GMM_COVARIANCE_UPDATE_EPOCHS
-                and enable_loss_residual_gmm
-            ):
+            if enable_loss_residual_gmm:
                 (
                     residual_gmm_covariance_bank,
                     residual_gmm_covariance_initialized,
@@ -2138,9 +2238,8 @@ class GaugeTrainer:
                     residual_gmm_covariance_initialized,
                     aux["residual_gmm_covariance_estimates"],
                     uniform_window_weights,
+                    covariance_floor=residual_gmm_cov_floor,
                 )
-            if enable_loss_residual_gmm:
-                residual_gmm_covariance_update_count += 1
             state = state_candidate
             loss_ema.annotate_aux(aux)
             loss_ema.update(aux)
@@ -3150,11 +3249,7 @@ class GaugeTrainer:
                         )
                     continue
 
-                if (
-                    completed_stage_epochs
-                    < RESIDUAL_GMM_COVARIANCE_UPDATE_EPOCHS
-                    and enable_loss_residual_gmm
-                ):
+                if enable_loss_residual_gmm:
                     for segment_local_index, segment_aux in zip(
                         valid_segment_indices,
                         segment_aux_rows,
@@ -3173,6 +3268,7 @@ class GaugeTrainer:
                                 segment_window_weights[
                                     segment_local_index
                                 ],
+                                covariance_floor=residual_gmm_cov_floor,
                             )
                         )
                         residual_gmm_covariance_bank = (

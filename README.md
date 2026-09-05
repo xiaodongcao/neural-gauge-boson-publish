@@ -92,8 +92,8 @@ python scripts/simulation_run.py --help
 
 ## Supplied configuration
 
-[`configs/bench_csr.json`](configs/bench_csr.json) is the configuration of an
-actual calculation. Its main workload settings are:
+[`configs/bench_csr.json`](configs/bench_csr.json) is the configuration of a single site
+training/simulation. Its main workload settings are:
 
 - a single-site Kerr problem with `U=1`, `gamma=0.3`, and initial occupation
   `n0=1`;
@@ -101,10 +101,9 @@ actual calculation. Its main workload settings are:
 - the `interaction_picture_exact_local` SDE solver;
 - covariance-normalized residual channels `(0,1)`, `(1,0)`, `(1,1)`, and
   `(2,2)`;
-- one overlapping-segment training stage with 100001 epochs and 10000
-  walkers;
-- a production simulation with 10000000 walkers, split into walker batches;
-- simulation step size `dt=5e-4`, 20 steps per window, and 1500 windows.
+- multistage training;
+- a simulation with 1000000 walkers, split into walker batches;
+- simulation step size `dt=2.5e-4`, 20 steps per window, and 1000 windows.
 
 
 ## Train a neural gauge

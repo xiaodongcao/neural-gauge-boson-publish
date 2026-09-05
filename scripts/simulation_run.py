@@ -91,8 +91,9 @@ Current simulation behavior:
     covariance. The broadcast physical trace equation remains a raw monitor
     but is excluded from that geometry and objective. Set the mode to
     `"joint"` for the legacy trace-inclusive covariance. A lagged covariance
-    bank is calibrated during the first 200 accepted optimizer updates of each
-    stage and then frozen. Covariance flooring, correlation shrinkage,
+    bank is updated after every accepted optimizer update, with generalized
+    spectral-ratio clipping against its numerically floored preceding value
+    before the EMA update. Covariance flooring,
     Cholesky whitening, and walkerwise
     Mahalanobis gradient clipping affect training only; they do not change the
     saved simulation rollout

@@ -328,12 +328,15 @@ All configured onsite monomial channels remain in the objective. The trace is
 also active only in `joint` mode. Covariance quantities are stop-gradient
 preconditioners.
 
-A lagged covariance bank is calibrated over the first 200 accepted optimizer
-updates of each stage and then frozen. An uninitialized window is scored with
-its current stopped `SigmaBar_k` estimate; after initialization, the score
-uses the preceding accepted bank. A finite shared estimate is committed only
-after the optimizer update is accepted. Skipped updates do not modify the
-bank. Shapes are
+A lagged covariance bank is updated throughout each stage after every accepted
+optimizer update. An uninitialized window is scored with its current stopped
+`SigmaBar_k` estimate; after initialization, the score uses the preceding
+accepted bank. Before the EMA update (decay `0.95`), generalized eigenvalues of
+the new estimate relative to that preceding bank, regularized by
+`residual_gmm_cov_floor`, are clipped to `[0.25, 4]`.
+This limits the effect of one anomalous rollout while allowing the covariance
+geometry to continue adapting as the policy changes. Skipped updates do not
+modify the bank. Shapes are
 
 ```text
 ordinary:  (window, D, D)
@@ -342,14 +345,16 @@ segmented: (segment, window, D, D)
 
 with matching Boolean initialization masks that omit the final matrix axes.
 
-The active forward mean is not clipped. Its gradient contribution is clipped
-walkerwise at Mahalanobis radius `residual_gmm_d_clip`, using a
+The covariance-update controls are internal defaults and are not part of the
+training configuration. The active forward mean is not clipped. Its gradient
+contribution is clipped walkerwise at Mahalanobis radius
+`residual_gmm_d_clip`, using a
 straight-through construction so the reported forward residual still includes
 every walker in every active channel. Lagging removes an instantaneous
-incentive to inflate covariance, and freezing removes a moving-normalizer
-loophole. The full raw residual history (including trace), active-channel
-radii, and physical observables should still be inspected alongside the
-normalized objective.
+incentive to inflate covariance, while the spectral-ratio bound limits movement
+of the normalizer. The full raw residual history (including trace),
+active-channel radii, and physical observables should still be inspected
+alongside the normalized objective.
 
 For each window, every site mean uses the same `PBar_k`. Define the individual
 site/window quadratic
